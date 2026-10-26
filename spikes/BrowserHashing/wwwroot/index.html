@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Wireloom WebAssembly hashing spike</title>
+    <style>
+        body { max-width: 72rem; margin: 2rem auto; padding: 0 1rem; font: 16px/1.5 system-ui, sans-serif; }
+        pre { padding: 1rem; overflow: auto; background: #f2f4f6; border-radius: .4rem; }
+        button { padding: .5rem 1rem; font: inherit; }
+        [data-result="pass"] { color: #126b35; }
+        [data-result="fail"] { color: #a61b1b; }
+        summary { padding: .5rem; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>Wireloom WebAssembly hashing spike</h1>
+    <p>A fixed IDL compiles in the browser using a synchronous JavaScript MD5 delegate.</p>
+    <p id="status" role="status">Loading .NET WebAssembly…</p>
+    <button id="run" disabled>Compile again</button>
+    <h2>Static IDL</h2>
+    <pre id="idl"></pre>
+    <h2>Checks</h2>
+    <pre id="report"></pre>
+    <h2>Generated documents</h2>
+    <div id="documents"></div>
+    <script type="module" src="main.js"></script>
+</body>
+</html>
