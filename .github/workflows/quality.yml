@@ -34,13 +34,18 @@ jobs:
       matrix:
         os: [ubuntu-26.04, windows-2025]
     steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
       - name: Check out repository
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up repository SDK
-        uses: actions/setup-dotnet@v6.0.0
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           global-json-file: global.json
           cache: true
@@ -65,13 +70,18 @@ jobs:
     env:
       CORPUS_RTI_PROFILE: ${{ matrix.rti_version }}
     steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
       - name: Check out repository
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up repository SDK
-        uses: actions/setup-dotnet@v6.0.0
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           global-json-file: global.json
           cache: true
@@ -108,13 +118,18 @@ jobs:
       CONSUMER_FRAMEWORK: ${{ matrix.framework }}
       TEST_PACKAGE_VERSION: 0.4.0-lts-verification
     steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
       - name: Check out repository
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up repository SDK and .NET 8 runtime
-        uses: actions/setup-dotnet@v6.0.0
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           global-json-file: global.json
           dotnet-version: 8.0.426
@@ -189,7 +204,7 @@ jobs:
 
       - name: Retain LTS test output
         if: always()
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: lts-${{ matrix.os }}-rti-${{ matrix.rti_version }}-${{ matrix.framework }}
           path: artifacts/lts/
@@ -208,13 +223,18 @@ jobs:
       RTI_VERSION: ${{ matrix.rti_version }}
       TEST_PACKAGE_VERSION: 0.4.0-net8-consumer
     steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
       - name: Check out repository
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up repository SDK
-        uses: actions/setup-dotnet@v6.0.0
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           global-json-file: global.json
           cache: true
@@ -301,7 +321,7 @@ jobs:
 
       - name: Retain .NET 8 consumer test output
         if: always()
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: net8-package-consumer-rti-${{ matrix.rti_version }}
           path: artifacts/net8-package-consumer/
@@ -314,14 +334,19 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 35
     steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
       - name: Check out repository
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
 
       - name: Set up .NET
-        uses: actions/setup-dotnet@v6.0.0
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: 10.0.402
           cache: true
@@ -330,7 +355,7 @@ jobs:
             **/packages*.lock.json
 
       - name: Set up pinned Node
-        uses: actions/setup-node@v7.1.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: playground/.node-version
           cache: npm
@@ -441,7 +466,7 @@ jobs:
           EXPECTED_SOURCE_SHA: ${{ github.sha }}
 
       - name: Retain validated Pages candidate
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: playground-pages
           path: playground/dist-pages/
@@ -450,7 +475,7 @@ jobs:
 
       - name: Retain Playground qualification evidence
         if: always()
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: playground-qualification
           path: |
@@ -464,7 +489,7 @@ jobs:
           retention-days: 14
 
       - name: Retain combined coverage reports
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: combined-coverage
           path: |
@@ -494,7 +519,7 @@ jobs:
           WIRELOOM_FSCHECK_TESTS: 10000
 
       - name: Upload compiler, generator, and Playground coverage to Coveralls
-        uses: coverallsapp/github-action@v2.3.8
+        uses: coverallsapp/github-action@8d6379e14d29928660c4ba802d8e85393440b329 # v2.3.8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           format: cobertura
@@ -509,20 +534,25 @@ jobs:
       pull-requests: write
       checks: write
     steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
       - name: Check out repository
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
       - name: Set up .NET SDK
-        uses: actions/setup-dotnet@v6.0.0
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           global-json-file: global.json
 
       - name: Run Qodana community scan
-        uses: JetBrains/qodana-action@v2026.2.2
+        uses: JetBrains/qodana-action@3e8d76ff0e0241618abd808682f426afe84bab3f # v2026.2.2
         with:
           args: >-
             --image=jetbrains/qodana-cdnet:2026.2-privileged

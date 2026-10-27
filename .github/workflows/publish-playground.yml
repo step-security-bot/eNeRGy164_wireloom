@@ -40,6 +40,11 @@ jobs:
       run_id: ${{ steps.source.outputs.run_id }}
       revision: ${{ steps.source.outputs.revision }}
     steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
       - name: Validate run provenance and Coveralls
         id: source
         env:
@@ -90,6 +95,11 @@ jobs:
       contents: read
       pages: read
     steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
       - name: Check out trusted verification scripts
         uses: actions/checkout@v7.0.1
         with:
@@ -149,6 +159,11 @@ jobs:
     outputs:
       page_url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
       - name: Reject superseded automatic publication
         id: current
         env:
@@ -190,6 +205,11 @@ jobs:
       contents: read
       actions: read
     steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
       - name: Check out trusted verification scripts
         uses: actions/checkout@v7.0.1
         with:

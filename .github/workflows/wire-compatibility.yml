@@ -34,6 +34,11 @@ jobs:
       WIRE_COMPATIBILITY_SHARD_INDEX: ${{ matrix.shard }}
       WIRE_COMPATIBILITY_SHARD_COUNT: 8
     steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
       - name: Check out repository
         uses: actions/checkout@v7.0.1
         with:
@@ -176,6 +181,11 @@ jobs:
     env:
       WIRE_COMPATIBILITY_RTI_VERSION: ${{ matrix.rti_version }}
     steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@dc2769abcc0fcfbadfc1df54081c1608579ef6b2 # v2.22.2
+        with:
+          egress-policy: audit
+
       - name: Check out repository
         uses: actions/checkout@v7.0.1
         with:
