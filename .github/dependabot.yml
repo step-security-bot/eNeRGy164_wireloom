@@ -5,3 +5,73 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+
+  - package-ecosystem: npm
+    directory: /playground
+    schedule:
+      interval: daily
+
+  - package-ecosystem: nuget
+    directory: /samples/HelloWorld
+    schedule:
+      interval: daily
+
+  - package-ecosystem: nuget
+    directory: /src/Wireloom.Dds.Compiler
+    schedule:
+      interval: daily
+
+  - package-ecosystem: nuget
+    directory: /src/Wireloom.Dds.Generator
+    schedule:
+      interval: daily
+
+  - package-ecosystem: nuget
+    directory: /src/Wireloom.Playground.Browser
+    schedule:
+      interval: daily
+
+  - package-ecosystem: nuget
+    directory: /tests/Wireloom.Dds.Compiler.Tests
+    schedule:
+      interval: daily
+
+  - package-ecosystem: nuget
+    directory: /tests/Wireloom.Dds.Generator.CorpusCompliance
+    schedule:
+      interval: daily
+
+  - package-ecosystem: nuget
+    directory: /tests/Wireloom.Dds.Generator.Fuzzing.Tests
+    schedule:
+      interval: daily
+
+  - package-ecosystem: nuget
+    directory: /tests/Wireloom.Dds.Generator.PackageIntegration
+    schedule:
+      interval: daily
+
+  - package-ecosystem: nuget
+    directory: /tests/Wireloom.Dds.Generator.RuntimeContracts
+    schedule:
+      interval: daily
+
+  - package-ecosystem: nuget
+    directory: /tests/Wireloom.Dds.Generator.TestSupport
+    schedule:
+      interval: daily
+
+  - package-ecosystem: nuget
+    directory: /tests/Wireloom.Dds.Generator.Tests
+    schedule:
+      interval: daily
+
+  - package-ecosystem: nuget
+    directory: /tests/Wireloom.Dds.Generator.WireCompatibility/RtiOracleProbe
+    schedule:
+      interval: daily
+
+  - package-ecosystem: nuget
+    directory: /tests/Wireloom.Dds.Generator.WireCompatibility
+    schedule:
+      interval: daily
