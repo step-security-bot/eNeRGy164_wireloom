@@ -18,7 +18,7 @@ import { askPath, choose, settingsDialog } from "./workspace-dialogs";
 interface Callbacks {
   current(): { workspace: Workspace; activeId?: string; revision: number };
   change(workspace: Workspace, activeId?: string): void;
-  select(id: string): void;
+  select(id?: string): void;
   notice(message: string, kind?: "info" | "error"): void;
 }
 
@@ -30,6 +30,8 @@ export class SourceWorkbench {
   private menu?: HTMLElement;
   private draggedPath?: string;
   private importTicket = 0;
+  private openFiles = new Set<string>();
+  private knownFiles = new Set<string>();
 
   constructor(
     private tree: HTMLElement,
@@ -38,18 +40,11 @@ export class SourceWorkbench {
   ) {
     document.getElementById("new-file")!.addEventListener("click", () => void this.create(false));
     document.getElementById("new-folder")!.addEventListener("click", () => void this.create(true));
-    document.getElementById("collapse-folders")!.addEventListener("click", () => {
-      this.expanded = new Set([workspaceRoot]);
-      this.selected = workspaceRoot;
-      this.render();
-    });
     document
       .getElementById("source-actions")!
       .addEventListener("click", (event) => this.contextMenu(event as MouseEvent));
     document.getElementById("workspace-settings")!.addEventListener("click", () => void this.settings());
-    document
-      .getElementById("file-properties")!
-      .addEventListener("click", () => void this.settings(this.callbacks.current().activeId));
+    this.tabs.addEventListener("contextmenu", (event) => this.tabStripMenu(event as MouseEvent));
     this.tree.addEventListener("keydown", (event) => this.navigate(event));
     document.addEventListener("pointerdown", (event) => {
       if (this.menu && !this.menu.contains(event.target as Node)) this.closeMenu();
@@ -61,8 +56,26 @@ export class SourceWorkbench {
     return workspace.files.some((file) => file.path === this.selected) ? parentPath(this.selected) : this.selected;
   }
 
+  private relativePath(path: string) {
+    return path === workspaceRoot ? "" : path.slice(workspaceRoot.length + 1);
+  }
+
+  private resolveRelativePath(path: string) {
+    const value = path.trim();
+    if (!value || value === ".") return workspaceRoot;
+    if (value.startsWith("/")) throw new Error("Enter a path relative to the workspace root.");
+    const fullPath = `${workspaceRoot}/${value}`;
+    validatePath(fullPath, true);
+    return fullPath;
+  }
+
   render() {
     const { workspace, activeId } = this.callbacks.current();
+    const currentFiles = new Set(workspace.files.map((file) => file.id));
+    for (const id of currentFiles) if (!this.knownFiles.has(id)) this.openFiles.add(id);
+    for (const id of this.openFiles) if (!currentFiles.has(id)) this.openFiles.delete(id);
+    this.knownFiles = currentFiles;
+    if (activeId) this.openFiles.add(activeId);
     const folders = new Set([workspaceRoot, ...workspace.folders]);
     for (const folder of folders) if (!this.knownFolders.has(folder)) this.expanded.add(folder);
     for (const folder of this.expanded) if (!folders.has(folder)) this.expanded.delete(folder);
@@ -159,53 +172,99 @@ export class SourceWorkbench {
         children.forEach((child) => visit(child, level + 1));
       }
     };
-    visit(workspaceRoot, 1);
+    const rootChildren = paths.filter((path) => path !== workspaceRoot && parentPath(path) === workspaceRoot);
+    rootChildren.sort(
+      (a, b) =>
+        Number(workspace.folders.includes(b)) - Number(workspace.folders.includes(a)) || (a < b ? -1 : a > b ? 1 : 0),
+    );
+    rootChildren.forEach((path) => visit(path, 1));
     this.tree.replaceChildren(...nodes);
     if (focused) this.focusSelected();
     this.tabs.replaceChildren(
-      ...workspace.files.map((file, index) => {
-        const tab = document.createElement("button");
-        tab.id = `source-tab-${index}`;
-        tab.textContent = file.path.split("/").pop()!;
-        tab.title = file.path;
-        const icon = document.createElement("span");
-        icon.className = "file-icon file-icon-idl";
-        icon.setAttribute("aria-hidden", "true");
-        tab.prepend(icon);
-        tab.setAttribute("role", "tab");
-        tab.setAttribute("aria-selected", String(file.id === activeId));
-        tab.setAttribute("aria-controls", "source-panel");
-        tab.tabIndex = file.id === activeId ? 0 : -1;
-        if (file.id === activeId) document.getElementById("source-panel")!.setAttribute("aria-labelledby", tab.id);
-        tab.addEventListener("click", () => this.selectFile(file.id));
-        tab.addEventListener("keydown", (event) => {
-          const direction = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
-          if (!direction && event.key !== "Home" && event.key !== "End") return;
-          event.preventDefault();
-          const next =
-            event.key === "Home"
-              ? 0
-              : event.key === "End"
-                ? workspace.files.length - 1
-                : (index + direction + workspace.files.length) % workspace.files.length;
-          this.selectFile(workspace.files[next].id);
-          this.tabs.querySelector<HTMLButtonElement>('[aria-selected="true"]')?.focus();
-        });
-        return tab;
-      }),
+      ...workspace.files
+        .filter((file) => this.openFiles.has(file.id))
+        .map((file, index) => {
+          const wrapper = document.createElement("div");
+          wrapper.className = "editor-tab";
+          wrapper.setAttribute("role", "presentation");
+          const tab = document.createElement("button");
+          tab.id = `source-tab-${index}`;
+          tab.className = "editor-tab-label";
+          tab.textContent = file.path.split("/").pop()!;
+          tab.title = file.path;
+          const icon = document.createElement("span");
+          icon.className = "file-icon file-icon-idl";
+          icon.setAttribute("aria-hidden", "true");
+          tab.prepend(icon);
+          tab.setAttribute("role", "tab");
+          tab.setAttribute("aria-selected", String(file.id === activeId));
+          tab.setAttribute("aria-controls", "source-panel");
+          tab.tabIndex = file.id === activeId ? 0 : -1;
+          if (file.id === activeId) document.getElementById("source-panel")!.setAttribute("aria-labelledby", tab.id);
+          tab.addEventListener("click", () => this.selectFile(file.id));
+          tab.addEventListener("contextmenu", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            this.tabMenu(event, file.id);
+          });
+          tab.addEventListener("auxclick", (event) => {
+            if (event.button !== 1) return;
+            event.preventDefault();
+            event.stopPropagation();
+            this.closeFile(file.id);
+          });
+          tab.addEventListener("keydown", (event) => {
+            const direction = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+            if (!direction && event.key !== "Home" && event.key !== "End") return;
+            event.preventDefault();
+            const next =
+              event.key === "Home"
+                ? 0
+                : event.key === "End"
+                  ? workspace.files.length - 1
+                  : (index + direction + workspace.files.length) % workspace.files.length;
+            this.selectFile(workspace.files[next].id);
+            this.tabs.querySelector<HTMLButtonElement>('[aria-selected="true"]')?.focus();
+          });
+          const close = document.createElement("button");
+          close.type = "button";
+          close.className = "editor-tab-close";
+          close.textContent = "×";
+          close.title = `Close ${file.path.split("/").pop()}`;
+          close.setAttribute("aria-label", `Close ${file.path.split("/").pop()}`);
+          close.addEventListener("click", (event) => {
+            event.stopPropagation();
+            this.closeFile(file.id);
+          });
+          close.addEventListener("contextmenu", (event) => event.stopPropagation());
+          wrapper.append(tab, close);
+          return wrapper;
+        }),
     );
-    for (const id of ["file-properties", "copy-source", "download-source-file"])
+    for (const id of ["copy-source", "download-source-file"])
       (document.getElementById(id) as HTMLButtonElement).disabled = !activeId;
-    document.getElementById("empty-source")!.hidden = workspace.files.length > 0;
-    if (!workspace.files.length) document.getElementById("source-panel")!.removeAttribute("aria-labelledby");
+    const empty = document.getElementById("empty-source")!;
+    empty.hidden = this.openFiles.size > 0;
+    empty.querySelector("h2")!.textContent = workspace.files.length
+      ? "No source file is open"
+      : "Your workspace is empty";
+    empty.querySelector("p")!.textContent = workspace.files.length
+      ? "Choose a file in the Explorer to open it."
+      : 'Create or import IDL files, or load the "Hello, Wireloom" example.';
+    empty
+      .querySelectorAll("button")
+      .forEach((button) => ((button as HTMLButtonElement).hidden = workspace.files.length > 0));
+    if (!this.openFiles.size) document.getElementById("source-panel")!.removeAttribute("aria-labelledby");
+    const rootCount = workspace.files.filter((file) => file.isGenerationRoot).length;
     document.getElementById("source-count")!.textContent =
-      `${workspace.files.length} files · ${workspace.files.filter((file) => file.isGenerationRoot).length} Roots`;
+      `${workspace.files.length} files · ${rootCount} ${rootCount === 1 ? "Root" : "Roots"}`;
   }
 
   selectFile(id: string) {
     const file = this.callbacks.current().workspace.files.find((file) => file.id === id);
     if (!file) return;
     this.revealSourceGroup();
+    this.openFiles.add(id);
     this.selected = file.path;
     let path = parentPath(file.path);
     while (path.startsWith(workspaceRoot)) {
@@ -214,6 +273,83 @@ export class SourceWorkbench {
     }
     this.callbacks.select(id);
     this.tabs.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+
+  private closeFile(id: string) {
+    const { workspace, activeId } = this.callbacks.current();
+    const open = workspace.files.filter((file) => this.openFiles.has(file.id));
+    const index = open.findIndex((file) => file.id === id);
+    this.openFiles.delete(id);
+    if (activeId === id) {
+      const next = open[index + 1] ?? open[index - 1];
+      this.callbacks.select(next?.id);
+      this.tabs.querySelector<HTMLButtonElement>('[aria-selected="true"]')?.focus();
+    } else this.render();
+  }
+
+  private closeAllFiles() {
+    if (!this.openFiles.size) return;
+    this.openFiles.clear();
+    this.callbacks.select(undefined);
+  }
+
+  private tabStripMenu(event: MouseEvent) {
+    event.preventDefault();
+    this.closeMenu();
+    const menu = document.createElement("div");
+    menu.className = "source-context-menu";
+    menu.setAttribute("role", "menu");
+    menu.setAttribute("aria-label", "Source tab actions");
+    const closeAll = document.createElement("button");
+    closeAll.type = "button";
+    closeAll.textContent = "Close All";
+    closeAll.setAttribute("role", "menuitem");
+    closeAll.disabled = !this.openFiles.size;
+    closeAll.addEventListener("click", () => {
+      this.closeMenu();
+      this.closeAllFiles();
+    });
+    menu.append(closeAll);
+    menu.addEventListener("keydown", (keyEvent) => {
+      if (keyEvent.key !== "Escape") return;
+      keyEvent.preventDefault();
+      this.closeMenu();
+    });
+    document.body.append(menu);
+    menu.style.left = `${Math.max(8, Math.min(event.clientX, window.innerWidth - menu.offsetWidth - 8))}px`;
+    menu.style.top = `${Math.max(8, Math.min(event.clientY, window.innerHeight - menu.offsetHeight - 8))}px`;
+    this.menu = menu;
+    closeAll.focus();
+  }
+
+  private tabMenu(event: MouseEvent, id: string) {
+    this.closeMenu();
+    const file = this.callbacks.current().workspace.files.find((item) => item.id === id);
+    if (!file) return;
+    const menu = document.createElement("div");
+    menu.className = "source-context-menu";
+    menu.setAttribute("role", "menu");
+    menu.setAttribute("aria-label", `Actions for ${file.path}`);
+    for (const [label, action] of [
+      ["Properties…", () => void this.settings(file.id)],
+      ["Close", () => this.closeFile(file.id)],
+      ["Close All", () => this.closeAllFiles()],
+    ] as const) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = label;
+      button.setAttribute("role", "menuitem");
+      button.addEventListener("click", () => {
+        this.closeMenu();
+        action();
+      });
+      menu.append(button);
+    }
+    document.body.append(menu);
+    menu.style.left = `${Math.max(8, Math.min(event.clientX, window.innerWidth - menu.offsetWidth - 8))}px`;
+    menu.style.top = `${Math.max(8, Math.min(event.clientY, window.innerHeight - menu.offsetHeight - 8))}px`;
+    this.menu = menu;
+    menu.querySelector("button")?.focus();
   }
 
   private focusSelected() {
@@ -389,16 +525,21 @@ export class SourceWorkbench {
 
   private async move(path: string, destination?: string) {
     const { workspace, revision } = this.callbacks.current();
-    destination ??= await askPath("Move to", "Destination folder (virtual path)", this.destination()).then((folder) =>
-      folder === undefined ? undefined : `${folder}/${path.split("/").pop()}`,
-    );
-    if (destination === undefined) return;
     try {
+      destination ??= await askPath(
+        "Move to",
+        "Destination folder (relative to workspace; leave blank for root)",
+        this.relativePath(this.destination()),
+        false,
+      ).then((folder) =>
+        folder === undefined ? undefined : `${this.resolveRelativePath(folder)}/${path.split("/").pop()}`,
+      );
+      if (destination === undefined) return;
       let replace = false;
       while (hasPath(workspace, destination) && destination !== path) {
         const choice = await choose(
           "Path conflict",
-          `${destination} already exists. Replacing a folder removes its contents.`,
+          `${this.relativePath(destination)} already exists. Replacing a folder removes its contents.`,
           ["Replace", "Rename"],
         );
         if (!choice) return;
@@ -406,8 +547,13 @@ export class SourceWorkbench {
           replace = true;
           break;
         }
-        destination = await askPath("Rename destination", "Full destination path", destination);
-        if (destination === undefined) return;
+        const renamed = await askPath(
+          "Rename destination",
+          "Full destination path relative to workspace",
+          this.relativePath(destination),
+        );
+        if (renamed === undefined) return;
+        destination = this.resolveRelativePath(renamed);
       }
       if (revision !== this.callbacks.current().revision)
         throw new Error("The workspace changed while the dialog was open. Try the move again.");
@@ -426,9 +572,12 @@ export class SourceWorkbench {
     const nonempty =
       workspace.files.some((file) => file.path !== path && isWithin(file.path, path)) ||
       workspace.folders.some((folder) => folder !== path && isWithin(folder, path));
-    const choice = await choose("Delete", nonempty ? `Delete ${path} and all its contents?` : `Delete ${path}?`, [
+    const displayPath = this.relativePath(path);
+    const choice = await choose(
       "Delete",
-    ]);
+      nonempty ? `Delete ${displayPath} and all its contents?` : `Delete ${displayPath}?`,
+      ["Delete"],
+    );
     if (!choice) return;
     try {
       if (revision !== this.callbacks.current().revision) throw new Error("The workspace changed. Try deleting again.");

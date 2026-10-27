@@ -161,7 +161,7 @@ async (page) => {
                 for (const baseline of expected) {
                   const fixture = cases.find((value) => value.id === baseline.caseId);
                   const request = {
-                    protocolVersion: 2,
+                    protocolVersion: 3,
                     workerGeneration: 1,
                     requestId: ++requestId,
                     workspaceRevision: requestId,
@@ -220,7 +220,7 @@ async (page) => {
                 const fixture = cases[0];
                 for (let index = 0; index < 2; index++) {
                   const { response } = await wait({
-                    protocolVersion: 2,
+                    protocolVersion: 3,
                     workerGeneration: 1,
                     requestId: ++requestId,
                     workspaceRevision: requestId,
@@ -315,7 +315,7 @@ async (page) => {
                 event.data.type === "result" ? resolve(event.data.response) : reject(new Error(event.data.message));
               };
               worker.postMessage({
-                protocolVersion: 2,
+                protocolVersion: 3,
                 workerGeneration: 1,
                 requestId: 1,
                 workspaceRevision: 1,
@@ -644,7 +644,7 @@ async (page) => {
               };
 
               worker.postMessage({
-                protocolVersion: 2,
+                protocolVersion: 3,
                 workerGeneration: 1,
                 requestId: ++requestId,
                 workspaceRevision: requestId,

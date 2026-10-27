@@ -40,7 +40,7 @@ async (page, hooks = {}) => {
     await settle(app);
   };
 
-  const check = async (name, action) => {
+  const check = async (name, action, startEmpty = false) => {
     const context = await browser.newContext({ viewport: { width: 1440, height: 1050 } });
     if (browser.browserType().name() === "chromium")
       await context.grantPermissions(["clipboard-read", "clipboard-write"]);
@@ -52,7 +52,12 @@ async (page, hooks = {}) => {
     await hooks.start?.(app);
     try {
       await app.goto(input.root);
-      await current(app);
+      await settle(app);
+      if (!startEmpty && (await app.locator("#result-state").textContent()) === "Empty") {
+        await app.locator("#example").selectOption("hello");
+        await app.locator("#load-example").click();
+        await current(app);
+      }
       await action(app);
       assert(!errors.length, `Page errors: ${errors.join("; ")}`);
       report.checks.push({ name, passed: true });
@@ -78,6 +83,10 @@ async (page, hooks = {}) => {
     await row(app, path).click({ button: "right" });
     await app.getByRole("menuitem", { name: action, exact: true }).click();
   };
+  const properties = async (app) => {
+    await app.locator('#source-tabs [role="tab"][aria-selected="true"]').click({ button: "right" });
+    await app.getByRole("menuitem", { name: "Properties…", exact: true }).click();
+  };
   const pathDialog = async (app, value) => {
     await app.getByRole("dialog").locator("input").fill(value);
     await app.getByRole("button", { name: "Continue", exact: true }).click();
@@ -100,7 +109,7 @@ async (page, hooks = {}) => {
   };
 
   const role = async (app, value) => {
-    await app.locator("#file-properties").click();
+    await properties(app);
     await app
       .getByRole("dialog")
       .getByRole("radio", { name: value === "root" ? "Root" : "Include-only", exact: true })
@@ -140,12 +149,7 @@ async (page, hooks = {}) => {
       (await app.locator(".source-tools").evaluate((node) => getComputedStyle(node).opacity)) === "1",
       "Keyboard focus did not reveal Explorer actions",
     );
-    assert(
-      (await row(app, "/workspace")
-        .locator(".explorer-chevron")
-        .evaluate((node) => node.getBoundingClientRect().width)) >= 18,
-      "Folder chevron is too small",
-    );
+    assert((await row(app, "/workspace").count()) === 0, "The implicit workspace root appeared in the Explorer");
     await app.locator("#source-group-toggle").click();
     assert(await app.locator("#source-group-content").isHidden(), "Source group did not collapse");
     assert(await app.locator("#generated-group-content").isVisible(), "Source collapse affected Generated");
@@ -287,7 +291,15 @@ async (page, hooks = {}) => {
   await check("operation errors use explicit alert styling in both themes", async (app) => {
     const before = await saved(app);
     await menu(app, "/workspace/main.idl", "Move to…");
-    await pathDialog(app, "/workspace/missing");
+    assert(
+      !(await app.getByRole("dialog").textContent()).includes("/workspace"),
+      "Move dialog exposed the internal workspace prefix",
+    );
+    assert(
+      !(await app.getByRole("dialog").textContent()).includes("/workspace"),
+      "Move dialog exposed the internal workspace prefix",
+    );
+    await pathDialog(app, "missing");
     await app.waitForFunction(() => document.querySelector("#notice").dataset.kind === "error");
     assert(
       (await app.locator("#notice-message").textContent()).includes("Destination folder does not exist"),
@@ -391,6 +403,11 @@ async (page, hooks = {}) => {
       "Source ZIP lost workspace settings or current source",
     );
     assert(entries["workspace/empty/"] === "", "Source ZIP lost an empty folder");
+    assert(
+      entries["workspace/Wireloom.csproj"]?.includes('Include="main.idl"') &&
+        !entries["workspace/Wireloom.csproj"].includes("/workspace"),
+      `Source ZIP project preview missing expected relative path: ${entries["workspace/Wireloom.csproj"]}`,
+    );
     for (const file of workspace.files)
       assert(entries[file.path.slice(1)] === file.source, `Source ZIP changed ${file.path}`);
   });
@@ -398,31 +415,38 @@ async (page, hooks = {}) => {
   await check("Escape cancels every dialog and Properties exposes keyboard-operable toggles", async (app) => {
     const before = await saved(app);
     await app.locator("#workspace-settings").click();
-    await app
-      .getByRole("dialog")
-      .getByLabel("Defines (one NAME or NAME=value per line; all Roots)", { exact: true })
-      .fill("CANCELED=1");
+    await app.getByRole("dialog").getByLabel("Enable escape character", { exact: true }).check();
     await app.keyboard.press("Escape");
     await app.getByRole("dialog").waitFor({ state: "hidden" });
     assert(JSON.stringify(await saved(app)) === JSON.stringify(before), "Escape applied Workspace Settings");
-    await app.locator("#file-properties").click();
-    const properties = app.getByRole("dialog");
-    await properties.getByRole("radio", { name: "Root", exact: true }).focus();
-    await app.keyboard.press("ArrowRight");
+    await properties(app);
+    const propertiesDialog = app.getByRole("dialog");
     assert(
-      await properties.getByRole("radio", { name: "Include-only", exact: true }).isChecked(),
-      "Role toggle did not respond to arrow keys",
+      !(await propertiesDialog.textContent()).includes("/workspace"),
+      "File properties title exposed the internal workspace prefix",
     );
-    await properties.getByRole("radio", { name: "RTI C#", exact: true }).focus();
+    await propertiesDialog.getByRole("radio", { name: "Root", exact: true }).focus();
     await app.keyboard.press("ArrowRight");
     assert(
-      await properties.getByRole("radio", { name: "IDL", exact: true }).isChecked(),
-      "Mapping toggle did not respond to arrow keys",
+      await propertiesDialog.getByRole("radio", { name: "Include-only", exact: true }).isChecked(),
+      "Role toggle did not respond to arrow keys",
     );
     await app.screenshot({ path: "output/playwright/workspace-properties-toggles.png", fullPage: true });
     await app.keyboard.press("Escape");
-    await properties.waitFor({ state: "hidden" });
+    await propertiesDialog.waitFor({ state: "hidden" });
     assert(JSON.stringify(await saved(app)) === JSON.stringify(before), "Escape applied File Properties");
+
+    await app.locator("#workspace-settings").click();
+    const workspaceSettings = app.getByRole("dialog");
+    await workspaceSettings.getByRole("radio", { name: "RTI C#", exact: true }).focus();
+    await app.keyboard.press("ArrowRight");
+    assert(
+      await workspaceSettings.getByRole("radio", { name: "IDL", exact: true }).isChecked(),
+      "Mapping toggle did not respond to arrow keys",
+    );
+    await app.keyboard.press("Escape");
+    await workspaceSettings.waitFor({ state: "hidden" });
+    assert(JSON.stringify(await saved(app)) === JSON.stringify(before), "Escape applied Workspace Settings");
     await app.locator("#source-explorer-panel").hover();
     await app.locator("#new-file").click();
     await app.getByRole("dialog").locator("input").fill("canceled.idl");
@@ -455,14 +479,42 @@ async (page, hooks = {}) => {
         await settle(app);
         await app.locator("#example").selectOption(id);
         await app.locator("#load-example").click();
-        await current(app);
         const expected = input.exampleExpected.find(
           (value) => value.caseId === `example-${id}` && value.profile === profile,
         );
-        const names = await app.locator("#file-list button").allTextContents();
+        const expectedNames = expected.documents.map((doc) => doc.name).sort();
+        const expectedSource = input.examples.find((example) => example.id === id).source;
+        await app.waitForFunction(async (source) => {
+          const database = await new Promise((resolve, reject) => {
+            const request = indexedDB.open("wireloom-playground", 1);
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+          try {
+            const workspace = await new Promise((resolve, reject) => {
+              const request = database.transaction("workspace").objectStore("workspace").get("current");
+              request.onsuccess = () => resolve(request.result);
+              request.onerror = () => reject(request.error);
+            });
+            return workspace?.files.some((file) => file.source === source);
+          } finally {
+            database.close();
+          }
+        }, expectedSource);
+        await current(app);
+        await app.waitForFunction((names) => {
+          const actual = [...document.querySelectorAll('#file-list button:not([data-name$=".csproj"])')]
+            .map((button) => button.dataset.name)
+            .sort();
+          return JSON.stringify(actual) === JSON.stringify(names);
+        }, expectedNames);
+        await current(app);
+        const names = (await app.locator("#file-list button").allTextContents()).filter(
+          (name) => !name.endsWith(".csproj"),
+        );
         assert(
           JSON.stringify([...names].sort()) === JSON.stringify(expected.documents.map((doc) => doc.name).sort()),
-          "Multi-file generated document names differ",
+          `Multi-file generated document names differ: actual=${JSON.stringify(names)} expected=${JSON.stringify(expected.documents.map((doc) => doc.name))}`,
         );
         for (const doc of expected.documents) {
           await app.locator("#file-list button").filter({ hasText: doc.name }).click();
@@ -537,25 +589,28 @@ async (page, hooks = {}) => {
     await app.getByRole("menuitem", { name: "Rename…", exact: true }).click();
     await pathDialog(app, "renamed");
     await row(app, "/workspace/renamed").waitFor();
-    await row(app, "/workspace").focus();
+    await row(app, "/workspace/renamed").focus();
     await app.keyboard.press("Home");
-    await app.keyboard.press("ArrowDown");
     assert(
       (await row(app, "/workspace/renamed").getAttribute("aria-selected")) === "true",
+      "Home did not select the first visible tree entry",
+    );
+    await app.keyboard.press("ArrowDown");
+    assert(
+      (await row(app, "/workspace/main.idl").getAttribute("aria-selected")) === "true",
       "Tree navigation did not move selection",
     );
+    await row(app, "/workspace/renamed").click();
     await addFolder(app, "nested", "/workspace/renamed/nested");
     await menu(app, "/workspace/renamed/nested", "Move to…");
-    await pathDialog(app, "/workspace");
+    await pathDialog(app, "");
     await row(app, "/workspace/nested").waitFor();
     await row(app, "/workspace/nested").dragTo(row(app, "/workspace/renamed"));
     await row(app, "/workspace/renamed/nested").waitFor();
     await app.locator("#source-explorer-panel").hover();
-    await app.locator("#collapse-folders").click();
-    assert(
-      (await row(app, "/workspace/renamed/nested").count()) === 0,
-      "Collapse Folders left a nested folder visible",
-    );
+    assert((await row(app, "/workspace").count()) === 0, "The implicit workspace root appeared in the Explorer");
+    await row(app, "/workspace/renamed").click();
+    assert((await row(app, "/workspace/renamed/nested").count()) === 0, "Collapsing a folder left its child visible");
     await row(app, "/workspace/renamed").click();
     await row(app, "/workspace/renamed/nested").waitFor();
     await menu(app, "/workspace/renamed", "Delete");
@@ -624,7 +679,7 @@ async (page, hooks = {}) => {
         "Diagnostic did not focus the source editor",
       );
       workspace = await saved(app);
-      assert(workspace.files[1].options.sequenceSize === 100, "Include-only file lost default properties");
+      assert(workspace.files[1].options.strict === false, "Include-only file inherited root properties");
     },
   );
 
@@ -642,6 +697,11 @@ async (page, hooks = {}) => {
     await app.reload();
     await settle(app);
     await menu(app, "/workspace/main.idl", "Delete");
+    assert(
+      !(await app.getByRole("dialog").textContent()).includes("/workspace") &&
+        (await app.getByRole("dialog").textContent()).includes("main.idl"),
+      "Delete confirmation exposed the internal workspace prefix",
+    );
     await app.getByRole("button", { name: "Delete", exact: true }).click();
     await app.locator("#empty-source").waitFor();
     await settle(app);
@@ -652,6 +712,20 @@ async (page, hooks = {}) => {
     await app.reload();
     await settle(app);
     assert((await saved(app)).files.length === 0, "Empty workspace was replaced on reload");
+    assert(await app.locator("#download-source").isDisabled(), "Empty workspace left the IDL ZIP enabled");
+    assert(
+      (await app.locator("#example-description").textContent()) === "",
+      "Empty workspace retained the example description",
+    );
+    assert(await app.locator("#empty-create-file").isVisible(), "Empty workspace hid the blank-file action");
+    assert(await app.locator("#empty-load-example").isVisible(), "Empty workspace hid the example action");
+    assert(
+      await app.locator("#empty-source .empty-source-actions").evaluate((node) => {
+        const style = getComputedStyle(node);
+        return style.display === "flex" && style.flexDirection === "row" && style.gap === "8px";
+      }),
+      "Empty workspace actions are not horizontally spaced",
+    );
     for (const id of ["copy-source", "download-source-file"])
       assert(await app.locator(`#${id}`).isDisabled(), "Empty workspace left single-file controls enabled");
     await app.locator("#source-explorer-panel").hover();
@@ -659,18 +733,176 @@ async (page, hooks = {}) => {
     await pathDialog(app, "first.idl");
     await current(app);
     assert((await saved(app)).files[0].isGenerationRoot, "New file is not a Root by default");
+    assert((await app.locator("#source-count").textContent()).includes("1 Root"), "Single root count is pluralized");
   });
 
-  await check("Workspace Settings and file Properties apply their own compiler scopes", async (app) => {
+  await check("source and generated tabs close, reopen, and expose Close All", async (app) => {
+    const sourceTab = app.getByRole("tab", { name: "main.idl", exact: true });
+    await sourceTab.click({ button: "right" });
+    await app.getByRole("menuitem", { name: "Close", exact: true }).click();
+    await app.locator("#empty-source").waitFor();
+    await row(app, "/workspace/main.idl").click();
+    await app.locator("#empty-source").waitFor({ state: "hidden" });
+    await app.locator("#source").click();
+    await app.keyboard.press("ControlOrMeta+a");
+    await app.keyboard.press("ControlOrMeta+c");
+    assert(
+      (await app.evaluate(() => navigator.clipboard.readText())).includes("Hello"),
+      "Reopened source body is missing",
+    );
+    await app.locator("#source-tabs .editor-tab-close").click();
+    await app.locator("#empty-source").waitFor();
+    await row(app, "/workspace/main.idl").click();
+    await app.locator('#source-tabs [role="tab"][aria-selected="true"]').click({ button: "middle" });
+    await app.locator("#empty-source").waitFor();
+
+    await app.locator("#source-explorer-panel").hover();
+    await app.locator("#new-file").click();
+    await pathDialog(app, "second.idl");
+    await current(app);
+    await app.locator('#source-tabs [role="tab"][aria-selected="true"]').click({ button: "right" });
+    await app.getByRole("menuitem", { name: "Close All", exact: true }).click();
+    await app.locator("#empty-source").waitFor();
+    assert((await saved(app)).files.length === 2, "Close All deleted source files");
+    await app.locator("#source-tabs").click({ button: "right" });
+    assert(
+      await app.getByRole("menuitem", { name: "Close All", exact: true }).isDisabled(),
+      "Idle source tab strip omitted its disabled Close All action",
+    );
+    await app.keyboard.press("Escape");
+
+    const generatedFiles = app.locator('#file-list button:not([data-name$=".csproj"])');
+    const generatedCount = await generatedFiles.count();
+    for (let index = 0; index < generatedCount; index++) await generatedFiles.nth(index).click();
+    const inactiveTab = app
+      .locator("#output-tabs .editor-tab")
+      .filter({ hasNot: app.locator('[aria-selected="true"]') })
+      .first();
+    if (generatedCount > 1) {
+      const close = inactiveTab.locator(".editor-tab-close");
+      assert(
+        (await close.evaluate((node) => getComputedStyle(node).opacity)) === "0" &&
+          (await close.evaluate((node) => node.getBoundingClientRect().width)) > 0,
+        "Inactive tab did not reserve a hidden close-button slot",
+      );
+      await inactiveTab.locator(".editor-tab-label").hover();
+      const accentSoft = await app.evaluate(() => {
+        const probe = document.createElement("span");
+        probe.style.backgroundColor = "var(--accent-soft)";
+        document.body.append(probe);
+        const color = getComputedStyle(probe).backgroundColor;
+        probe.remove();
+        return color;
+      });
+      assert(
+        (await close.evaluate((node) => getComputedStyle(node).opacity)) === "1" &&
+          (await inactiveTab.evaluate((node) => getComputedStyle(node).backgroundColor)) === accentSoft,
+        "Hovered tab did not reveal its close button across the full tab background",
+      );
+    }
+    await app.locator('#output-tabs [role="tab"][aria-selected="true"]').click({ button: "right" });
+    await app.getByRole("menuitem", { name: "Close All", exact: true }).click();
+    await app.locator("#empty-output").waitFor();
+    await generatedFiles.first().click();
+    const generatedName = await generatedFiles.first().getAttribute("data-name");
+    const generatedFileEntry = app.locator(`#file-list button[data-name="${generatedName}"]`);
+    await generatedFileEntry.click({ button: "right" });
+    await app.getByRole("menuitem", { name: "Close", exact: true }).click();
+    await app.locator("#empty-output").waitFor();
+    await generatedFileEntry.click({ button: "right" });
+    await app.getByRole("menuitem", { name: "Open", exact: true }).click();
+    await app.locator("#empty-output").waitFor({ state: "hidden" });
+    await generatedFileEntry.click({ button: "right" });
+    await app.getByRole("menuitem", { name: "Close", exact: true }).click();
+    await app.locator("#empty-output").waitFor();
+    await generatedFileEntry.click();
+    await app.locator("#empty-output").waitFor({ state: "hidden" });
+    await app.locator('#output-tabs [role="tab"][aria-selected="true"]').click({ button: "right" });
+    await app.getByRole("menuitem", { name: "Close", exact: true }).click();
+    await app.locator("#empty-output").waitFor();
+    await app.locator(`#file-list button[data-name="${generatedName}"]`).click();
+    await app.locator("#empty-output").waitFor({ state: "hidden" });
+    await app.locator("#generated-panel").click();
+    await app.keyboard.press("ControlOrMeta+a");
+    await app.keyboard.press("ControlOrMeta+c");
+    assert((await app.evaluate(() => navigator.clipboard.readText())).length > 0, "Reopened generated body is missing");
+    await app.locator("#output-tabs .editor-tab-close").click();
+    await app.locator("#empty-output").waitFor();
+    await generatedFileEntry.click();
+    await app.locator('#output-tabs [role="tab"][aria-selected="true"]').click({ button: "middle" });
+    await app.locator("#empty-output").waitFor();
+
+    await generatedFiles.first().click();
+    await app.locator('#output-tabs [role="tab"][aria-selected="true"]').click({ button: "right" });
+    await app.getByRole("menuitem", { name: "Close All", exact: true }).click();
+    await app.locator("#empty-output").waitFor();
+    assert((await app.locator("#output-tabs [role=tab]").count()) === 0, "Generated Close All left tabs open");
+    assert(
+      (await app.locator('#file-list button[data-name="Wireloom.csproj"]').count()) === 1,
+      "CSProj preview is missing",
+    );
+    assert(
+      (await app.getByRole("tab", { name: "Wireloom.csproj", exact: true }).count()) === 0,
+      "CSProj preview opened automatically",
+    );
+    assert(
+      (await app.locator('#file-list button[data-name="Wireloom.csproj"] .file-icon-csproj').count()) === 1,
+      "CSProj file icon is missing",
+    );
+  });
+
+  await check(
+    "fresh workspace offers blank IDL and Hello, Wireloom actions",
+    async (app) => {
+      assert((await saved(app)).files.length === 0, "First-use workspace was not empty");
+      assert((await app.locator("#result-state").textContent()) === "Empty", "First-use state was not Empty");
+      assert(
+        (await app.locator("#example-description").textContent()) === "",
+        "First use showed an example description",
+      );
+      assert(await app.locator("#download-source").isDisabled(), "Empty workspace enabled source ZIP download");
+      await app.locator("#empty-create-file").click();
+      await pathDialog(app, "untitled.idl");
+      await current(app);
+      assert((await saved(app)).files[0].path === "/workspace/untitled.idl", "Blank action did not create an IDL file");
+      app.removeAllListeners("dialog");
+      app.on("dialog", (dialog) => dialog.accept());
+      await app.locator("#reset").click();
+      await settle(app);
+      await app.waitForFunction(() => document.querySelector("#source-state").textContent === "Saved locally");
+      assert((await saved(app)).files.length === 0, "Reset created or retained an IDL file");
+      assert(
+        (await app.locator("#example-description").textContent()) === "",
+        "Reset left example description visible",
+      );
+      await app.locator("#empty-load-example").click();
+      await current(app);
+      assert(
+        (await saved(app)).files.some((file) => file.path === "/workspace/main.idl"),
+        "Hello example did not load",
+      );
+    },
+    true,
+  );
+
+  await check("Workspace and root Properties apply their compiler scopes", async (app) => {
     await app.locator("#example").selectOption("workspace-preprocessor");
     await app.locator("#load-example").click();
     await current(app);
     await app.locator("#workspace-settings").click();
     const settings = app.getByRole("dialog");
-    await settings.getByLabel("Undefines (one symbol per line; applied after defines)", { exact: true }).fill("");
-    await settings.getByLabel("Strict validation (whole batch)", { exact: true }).check();
-    await settings.getByLabel("Enable escape character (whole batch)", { exact: true }).check();
+    await settings.getByLabel("Enable escape character", { exact: true }).check();
+    await settings.getByRole("radio", { name: "IDL", exact: true }).locator("..").click();
+    await settings.getByLabel("Unbounded sequence size", { exact: true }).fill("12");
+    await settings.getByLabel("Unbounded string size", { exact: true }).fill("42");
     await settings.getByRole("button", { name: "Apply", exact: true }).click();
+    await current(app);
+    await app.getByRole("tab", { name: "main.idl", exact: true }).click();
+    await properties(app);
+    const rootProperties = app.getByRole("dialog");
+    await rootProperties.getByLabel("Undefines (one symbol per line; applied after defines)", { exact: true }).fill("");
+    await rootProperties.getByLabel("Strict validation", { exact: true }).check();
+    await rootProperties.getByRole("button", { name: "Apply", exact: true }).click();
     await current(app);
     assert(
       !(await app.locator("#file-list").textContent()).includes("Enabled.g.cs"),
@@ -678,32 +910,53 @@ async (page, hooks = {}) => {
     );
     const configured = await saved(app);
     assert(
-      configured.options.strict && configured.options.enableEscapeChar && configured.options.undefines.length === 0,
+      configured.files[0].options.strict &&
+        configured.options.enableEscapeChar &&
+        configured.files[0].options.undefines.length === 0,
       "Workspace settings were not saved",
     );
-    await app.getByRole("tab", { name: "types.idl", exact: true }).click();
-    await app.locator("#file-properties").click();
-    const properties = app.getByRole("dialog");
-    await properties.getByRole("radio", { name: "IDL", exact: true }).locator("..").click();
-    await properties.getByLabel("Unbounded sequence size (this declaring file)", { exact: true }).fill("12");
-    await properties.getByLabel("Unbounded string size (this declaring file)", { exact: true }).fill("42");
-    await properties.getByRole("button", { name: "Apply", exact: true }).click();
-    await current(app);
     const workspace = await saved(app);
     assert(
-      workspace.files[1].options.sequenceArrayMapping === "Idl" &&
-        workspace.files[1].options.sequenceSize === 12 &&
-        workspace.files[1].options.stringSize === 42,
-      "Declaring-file settings were lost",
+      workspace.options.sequenceArrayMapping === "Idl" &&
+        workspace.options.sequenceSize === 12 &&
+        workspace.options.stringSize === 42,
+      "Workspace sequence settings were lost",
     );
-    assert(workspace.files[0].options.sequenceSize === 100, "File properties leaked to another file");
+    await app.getByRole("tab", { name: "types.idl", exact: true }).click();
+    await properties(app);
+    const fileProperties = app.getByRole("dialog");
+    const fileSequence = fileProperties.getByLabel("Unbounded sequence size", { exact: true });
+    assert((await fileSequence.inputValue()) === "12", "File properties did not inherit the project sequence size");
+    await fileSequence.fill("22");
+    await fileProperties.getByRole("button", { name: "Apply", exact: true }).click();
+    await current(app);
     await app.locator("#workspace-settings").click();
-    await app
-      .getByRole("dialog")
-      .getByLabel("Defines (one NAME or NAME=value per line; all Roots)", { exact: true })
-      .fill("CHANGED=1");
+    const changedProjectSettings = app.getByRole("dialog");
+    await changedProjectSettings.getByLabel("Unbounded sequence size", { exact: true }).fill("88");
+    await changedProjectSettings.getByRole("button", { name: "Apply", exact: true }).click();
+    await current(app);
+    const withFileOverride = await saved(app);
+    assert(
+      withFileOverride.options.sequenceSize === 88 && withFileOverride.files[1].options.sequenceSize === 22,
+      "File sequence preference did not remain after a project setting change",
+    );
+    await app.getByRole("tab", { name: "types.idl", exact: true }).click();
+    await properties(app);
+    const overriddenProperties = app.getByRole("dialog");
+    await overriddenProperties
+      .getByRole("button", { name: "Reset sequence size to project default", exact: true })
+      .click();
+    await overriddenProperties.getByRole("button", { name: "Apply", exact: true }).click();
+    await current(app);
+    const afterFileReset = await saved(app);
+    assert(
+      afterFileReset.files[1].options.sequenceSize === undefined,
+      "Reset did not restore the project sequence setting",
+    );
+    await app.locator("#workspace-settings").click();
+    await app.getByRole("dialog").getByLabel("Unbounded sequence size", { exact: true }).fill("99");
     await app.getByRole("dialog").getByRole("button", { name: "Cancel", exact: true }).click();
-    assert(JSON.stringify(await saved(app)) === JSON.stringify(workspace), "Cancel applied Workspace Settings");
+    assert(JSON.stringify(await saved(app)) === JSON.stringify(afterFileReset), "Cancel applied Workspace Settings");
   });
 
   await check("rename conflicts require explicit Cancel, Rename, or Replace", async (app) => {
@@ -719,7 +972,7 @@ async (page, hooks = {}) => {
     await menu(app, "/workspace/main.idl", "Rename…");
     await pathDialog(app, "second.idl");
     await app.getByRole("dialog").getByRole("button", { name: "Rename", exact: true }).click();
-    await pathDialog(app, "/workspace/third.idl");
+    await pathDialog(app, "third.idl");
     await current(app);
     assert((await saved(app)).files[0].id === original.files[0].id, "Rename lost file identity");
     await menu(app, "/workspace/third.idl", "Rename…");
@@ -754,43 +1007,47 @@ async (page, hooks = {}) => {
     assert(await app.locator("#download-all").isDisabled(), "Cycle retained exportable output");
   });
 
-  await check("v1 recovery migrates source and profile without loss", async (app) => {
-    const source = "// café\r\nstruct Legacy { long x; };\r\n";
-    await app.evaluate(
-      (source) =>
-        new Promise((resolve, reject) => {
-          const opening = indexedDB.open("wireloom-playground", 1);
-          opening.onsuccess = () => {
-            const database = opening.result;
-            const transaction = database.transaction("workspace", "readwrite");
-            transaction.objectStore("workspace").put(
-              {
-                version: 1,
-                profile: "7.3.1",
-                files: [{ path: "/workspace/legacy.idl", source, isGenerationRoot: true }],
-              },
-              "current",
-            );
-            transaction.oncomplete = () => {
-              database.close();
-              resolve();
-            };
-            transaction.onerror = () => reject(transaction.error);
-          };
-        }),
-      source,
-    );
-    await app.reload();
-    await current(app);
-    const workspace = await saved(app);
+  await check("IDL word navigation and IDL/C# folding work in the editors", async (app) => {
+    await replaceText(app, "// alpha beta gamma");
+    await app.locator("#source").click();
+    await app.keyboard.press("ControlOrMeta+End");
+    await app.keyboard.press("ControlOrMeta+ArrowLeft");
+    await app.keyboard.insertText("delta ");
+    await settle(app);
     assert(
-      workspace.version === 2 &&
-        workspace.profile === "7.3.1" &&
-        workspace.files[0].source === source &&
-        workspace.files[0].isGenerationRoot,
-      "Legacy migration changed source, role, or profile",
+      (await saved(app)).files[0].source.includes("alpha beta delta gamma"),
+      "Ctrl+Left did not move by a word in the IDL editor",
     );
-    assert(workspace.options.includeDirectories.length === 0, "Migration invented include folders");
+    await replaceText(app, "// alpha beta gamma");
+    await app.locator("#source").click();
+    await app.keyboard.press("ControlOrMeta+End");
+    await app.keyboard.press("ControlOrMeta+Shift+ArrowLeft");
+    await app.keyboard.press("ControlOrMeta+c");
+    assert(
+      (await app.evaluate(() => navigator.clipboard.readText())) === "gamma",
+      "Ctrl+Shift+Left did not select the previous IDL word",
+    );
+
+    const idlSource = "module Folding {\nstruct Sample {\nlong value;\n};\n};";
+    await app.evaluate((source) => navigator.clipboard.writeText(source), idlSource);
+    await app.locator("#source").click();
+    await app.keyboard.press("ControlOrMeta+a");
+    await app.keyboard.press("ControlOrMeta+v");
+    await app.locator('#file-list button:not([data-name$=".csproj"])').first().waitFor();
+    await current(app);
+    await app.locator("#source").hover({ position: { x: 38, y: 60 } });
+    const idlFold = app.locator("#source .codicon-folding-expanded").first();
+    await idlFold.waitFor().catch(async () => {
+      throw new Error(`IDL folding control missing: ${await app.locator("#source .margin-view-overlays").innerHTML()}`);
+    });
+    await idlFold.click();
+    await app.locator("#source .codicon-folding-collapsed").first().waitFor();
+
+    const csharpFold = app.locator("#generated-panel .codicon-folding-expanded").first();
+    await csharpFold.waitFor();
+    await csharpFold.click();
+    await app.locator("#generated-panel .codicon-folding-collapsed").first().waitFor();
   });
+
   return report;
 };
